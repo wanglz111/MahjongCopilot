@@ -16,6 +16,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
+from bot.mjapi.bot_mjapi import BotMjapi
 from gui.main_gui import MainGUI
 from common import utils
 from common.log_helper import LogHelper
@@ -32,6 +33,12 @@ def main():
     bot_manager = BotManager(setting)
     gui = MainGUI(setting, bot_manager)
     gui.mainloop()
+    return bot_manager
+
+def logout(bot_manager):
+    bot_manager.bot.logout()
+    bot_manager.bot.mjapi.logout()
 
 if __name__ == "__main__":
-    main()
+    bot_manager = main()
+    logout(bot_manager)

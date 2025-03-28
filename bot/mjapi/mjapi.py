@@ -17,7 +17,7 @@ class MjapiClient:
         """Set the bearer token for authentication."""
         self.token = token
         self.headers['Authorization'] = f'Bearer {token}'
-    
+
     def post_req(self, path:str, json=None, raise_error:bool=True):
         """ send POST to API and process response"""
         try:
@@ -29,7 +29,7 @@ class MjapiClient:
                 raise e
             else:
                 return None
-    
+
     def get_req(self, path:str, raise_error:bool=True):
         """ send GET to API and process response"""
         try:
@@ -41,9 +41,9 @@ class MjapiClient:
                 raise e
             else:
                 return None
-        
+
     def _process_res(self, res:requests.Response, raise_error:bool):
-        """ return results or raise error"""            
+        """ return results or raise error"""
         if res.ok:
             return res.json() if res.content else None
         elif 'error' in res.json():
@@ -53,8 +53,8 @@ class MjapiClient:
             return res.json()
         else:
             raise RuntimeError(f"Unexpected API response {res.status_code}: {res.text}")
-        
-       
+
+
 
     def register(self, name):
         """Register a new user with a name."""
@@ -73,6 +73,16 @@ class MjapiClient:
             self.set_bearer_token(self.token)
         else:
             raise RuntimeError(f"Error login: {res_json}")
+
+    def trail_login(self):
+#         curl -X 'POST' \
+#   'https://mjai.7xcnnw11phu.eu.org/user/trial' \
+#   -H 'accept: application/json' \
+        path = '/user/trial'
+        data = {'code': 'FREE_TRIAL_SPONSORED_BY_MJAPI_DiscordID_9ns4esyx'}
+        res_json = self.post_req(path, json=data)
+        self.token = res_json['id']
+        self.set_bearer_token(self.token)
 
     def get_user_info(self):
         """Get current user info."""

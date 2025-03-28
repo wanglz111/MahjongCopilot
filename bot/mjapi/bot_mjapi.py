@@ -26,25 +26,26 @@ class BotMjapi(Bot):
         self._login_or_reg()
         self.id = -1
         self.ignore_next_turn_self_reach:bool = False
-        
+
     @property
     def info_str(self):
         return f"{self.name} [{self.st.mjapi_model_select}] (Usage: {self.api_usage})"
-        
+
     def _login_or_reg(self):
-        if not self.st.mjapi_user:
-            self.st.mjapi_user = random_str(6)
-            LOGGER.info("Created  random mjapi username:%s", self.st.mjapi_user)        
-        if self.st.mjapi_secret:    # login
-            LOGGER.debug("Logging in with user: %s", self.st.mjapi_user)
-            self.mjapi.login(self.st.mjapi_user, self.st.mjapi_secret)
-        else:         # try register  
-            LOGGER.debug("Registering in with user: %s", self.st.mjapi_user)          
-            res_reg = self.mjapi.register(self.st.mjapi_user)
-            self.st.mjapi_secret = res_reg['secret']
-            self.st.save_json()
-            LOGGER.info("Registered new user [%s] with MJAPI. User name and secret saved to settings.", self.st.mjapi_user)
-            self.mjapi.login(self.st.mjapi_user, self.st.mjapi_secret)
+        # if not self.st.mjapi_user:
+        #     self.st.mjapi_user = random_str(6)
+        #     LOGGER.info("Created  random mjapi username:%s", self.st.mjapi_user)
+        # if self.st.mjapi_secret:    # login
+        #     LOGGER.debug("Logging in with user: %s", self.st.mjapi_user)
+        #     self.mjapi.login(self.st.mjapi_user, self.st.mjapi_secret)
+        # else:         # try register
+        #     LOGGER.debug("Registering in with user: %s", self.st.mjapi_user)
+        #     res_reg = self.mjapi.register(self.st.mjapi_user)
+        #     self.st.mjapi_secret = res_reg['secret']
+        #     self.st.save_json()
+        #     LOGGER.info("Registered new user [%s] with MJAPI. User name and secret saved to settings.", self.st.mjapi_user)
+        # self.mjapi.login(self.st.mjapi_user, self.st.mjapi_secret)
+        self.mjapi.trail_login()
 
         model_list = self.mjapi.list_models()
         if not model_list:
@@ -81,6 +82,13 @@ class BotMjapi(Bot):
             pass
         else:
             return None
+
+        # 检查api是否正常，如果异常则重新登录
+        if 'type' not in reaction:
+            LOGGER.error("Bot react error: %s", reaction)
+            self.mjapi.logout()
+            self._login_or_reg()
+            pass
 
         # process self reach
         if recurse and reaction['type'] == MjaiType.REACH and reaction['actor'] == self.seat:
@@ -161,3 +169,6 @@ class BotMjapi(Bot):
             self.id = old_id
             raise err
         return self._process_reaction(reaction, True)
+
+    def logout(self):
+        self.mjapi.logout()
