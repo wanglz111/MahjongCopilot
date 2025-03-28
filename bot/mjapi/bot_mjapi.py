@@ -169,6 +169,3 @@ class BotMjapi(Bot):
             self.id = old_id
             raise err
         return self._process_reaction(reaction, True)
-
-    def logout(self):
-        self.mjapi.logout()

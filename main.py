@@ -33,12 +33,6 @@ def main():
     bot_manager = BotManager(setting)
     gui = MainGUI(setting, bot_manager)
     gui.mainloop()
-    return bot_manager
-
-def logout(bot_manager):
-    bot_manager.bot.logout()
-    bot_manager.bot.mjapi.logout()
 
 if __name__ == "__main__":
-    bot_manager = main()
-    logout(bot_manager)
+    main()
