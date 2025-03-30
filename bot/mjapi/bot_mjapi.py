@@ -6,6 +6,7 @@ import os
 import datetime
 import random
 import requests
+import threading
 from common.settings import Settings
 from common.log_helper import LOGGER
 from common.utils import random_str
@@ -203,12 +204,14 @@ class BotMjapi(Bot):
     retries = 3
     retry_interval = 1
     bound = 256
+    usage_update_interval = 300  # 每5分钟更新一次使用量统计（300秒）
 
     """ MJAPI based mjai bot"""
     def __init__(self, setting:Settings) -> None:
         super().__init__("MJAPI Bot")
         self.st = setting
         self.api_usage = None
+        self.last_usage_update = 0  # 上次更新使用量的时间戳
 
         LOGGER.info("初始化MJAPI Bot，开始创建代理管理器")
         self.proxy_manager = ProxyManager()
@@ -221,6 +224,11 @@ class BotMjapi(Bot):
 
         self.id = -1
         self.ignore_next_turn_self_reach:bool = False
+
+        # 启动定时更新使用量的线程
+        self.usage_update_thread = threading.Thread(target=self._update_usage_periodically, daemon=True)
+        self.usage_update_thread.start()
+        LOGGER.info(f"已启动API使用量定时更新线程，更新间隔: {self.usage_update_interval}秒")
 
     @property
     def info_str(self):
@@ -281,7 +289,8 @@ class BotMjapi(Bot):
 
                     # 获取用量信息
                     self.api_usage = self.mjapi.get_usage()
-                    LOGGER.info(f"API使用情况: {self.api_usage}")
+                    self.st.mjapi_usage = self.api_usage
+                    self.last_usage_update = time.time()  # 记录更新时间
                     self.st.save_json()
                 except Exception as e:
                     # 获取模型或用量失败不影响主要功能，只记录警告
@@ -338,6 +347,8 @@ class BotMjapi(Bot):
             self.model_name = self.st.mjapi_model_select
             LOGGER.info("获取API使用情况...")
             self.api_usage = self.mjapi.get_usage()
+            self.st.mjapi_usage = self.api_usage
+            self.last_usage_update = time.time()  # 记录更新时间
             self.st.save_json()
             LOGGER.info("Login to MJAPI successful with model_name=%s, 已找到可用代理和token", self.model_name)
             # 登录成功后，不再进行代理切换
@@ -361,7 +372,8 @@ class BotMjapi(Bot):
                 LOGGER.warning(f"停止bot时发生错误: {e}")
         if self.mjapi and self.mjapi.token:    # update usage and logout on deleting
             try:
-                self.st.mjapi_usage = self.mjapi.get_usage()
+                self.api_usage = self.mjapi.get_usage()
+                self.st.mjapi_usage = self.api_usage
                 self.st.save_json()
                 self.mjapi.logout()
             except Exception as e:
@@ -552,3 +564,23 @@ class BotMjapi(Bot):
             self.id = old_id
             raise err
         return self._process_reaction(reaction, True)
+
+    def _update_usage_periodically(self):
+        """定期更新API使用量统计"""
+        while True:
+            try:
+                # 如果已经初始化并且距离上次更新已经过了指定的时间
+                current_time = time.time()
+                if (self.mjapi and self.mjapi.token and
+                    (current_time - self.last_usage_update) >= self.usage_update_interval):
+                    LOGGER.info("定时更新API使用量统计...")
+                    self.api_usage = self.mjapi.get_usage()
+                    self.st.mjapi_usage = self.api_usage
+                    self.st.save_json()
+                    self.last_usage_update = current_time
+                    LOGGER.info(f"API使用量更新完成：{self.api_usage}")
+            except Exception as e:
+                LOGGER.warning(f"更新API使用量时发生错误: {e}")
+
+            # 休眠一段时间后再检查
+            time.sleep(60)  # 每分钟检查一次是否需要更新
