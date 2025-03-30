@@ -106,7 +106,7 @@ class ProxyManager:
     def get_proxy(self, force_new=False):
         """获取一个可用的代理，优先使用非直连代理"""
         # 如果当前代理可用且不强制切换，则继续使用
-        if not force_new and self.current_proxy and self.is_token_valid(self.current_proxy):
+        if not force_new and self.current_proxy and self.is_token_valid(self.current_proxy) and self.current_proxy not in self.failed_proxies:
             LOGGER.info(f"继续使用当前代理: {self.current_proxy}")
             if self.current_proxy == "direct":
                 return self.current_proxy, None
@@ -131,18 +131,33 @@ class ProxyManager:
             self.current_proxy_url = None
             return "direct", None
 
-        # 首先查找已有有效token的代理
+        # 提取两组代理：有效token的代理和无token的代理
+        valid_token_proxies = []
+        no_token_proxies = []
+
         for port in available_proxies:
             if port in self.tokens and self.is_token_valid(port):
-                LOGGER.info(f"找到有效token的代理: {port}，直接使用")
-                self.current_proxy = port
-                self.current_proxy_url = f"http://127.0.0.1:{port}"
-                LOGGER.info(f"选择HTTP代理: {port} ({self.proxies[port]['name']})")
-                return port, self.current_proxy_url
+                valid_token_proxies.append(port)
+            else:
+                no_token_proxies.append(port)
 
-        # 如果没有有效token的代理，随机选择一个可用代理
-        port = random.choice(available_proxies)
-        LOGGER.info(f"没有找到有效token的代理，随机选择一个代理: {port}")
+        # 随机选择一个代理，优先使用有有效token的代理
+        if valid_token_proxies and not force_new:
+            # 使用有效token的代理
+            LOGGER.info(f"找到{len(valid_token_proxies)}个有效token的代理")
+            port = random.choice(valid_token_proxies)
+            LOGGER.info(f"随机选择了有效token的代理: {port}")
+        elif available_proxies:
+            # 使用无token的代理或被强制刷新的代理
+            LOGGER.info(f"没有找到有效token的代理，将从{len(available_proxies)}个可用代理中选择")
+            port = random.choice(available_proxies)
+            LOGGER.info(f"随机选择了代理: {port}")
+        else:
+            # 这种情况应该不会发生，但保险起见
+            LOGGER.warning("没有可用代理，将使用直连模式")
+            self.current_proxy = "direct"
+            self.current_proxy_url = None
+            return "direct", None
 
         self.current_proxy = port
         self.current_proxy_url = f"http://127.0.0.1:{port}"
@@ -266,6 +281,7 @@ class BotMjapi(Bot):
 
                     # 获取用量信息
                     self.api_usage = self.mjapi.get_usage()
+                    LOGGER.info(f"API使用情况: {self.api_usage}")
                     self.st.save_json()
                 except Exception as e:
                     # 获取模型或用量失败不影响主要功能，只记录警告
@@ -352,8 +368,33 @@ class BotMjapi(Bot):
                 LOGGER.warning(f"登出时发生错误: {e}")
 
     def _init_bot_impl(self, _mode:GameMode=GameMode.MJ4P):
-        self.mjapi.start_bot(self.seat, BotMjapi.bound, self.model_name)
-        self.id = -1
+        """初始化麻将AI，告知座位信息"""
+        try:
+            LOGGER.info(f"启动AI Bot，座位: {self.seat}")
+            response = self.mjapi.start_bot(self.seat, BotMjapi.bound, self.model_name)
+            if isinstance(response, dict) and 'error' in response:
+                LOGGER.error(f"启动Bot失败: {response}")
+                # 标记当前代理为失败状态
+                if self.proxy_manager.current_proxy != "direct":
+                    LOGGER.warning(f"标记当前代理 {self.proxy_manager.current_proxy} 为失败状态")
+                    self.proxy_manager.mark_proxy_failed(self.proxy_manager.current_proxy)
+                # 重新设置客户端
+                self._setup_client(force_new=True)
+                # 递归重试一次
+                return self._init_bot_impl(_mode)
+
+            LOGGER.info(f"Bot启动成功，座位: {self.seat}, 模型: {self.model_name}")
+            self.id = -1
+        except Exception as e:
+            LOGGER.error(f"启动Bot时发生错误: {type(e).__name__}: {e}")
+            # 标记当前代理为失败状态
+            if self.proxy_manager.current_proxy != "direct":
+                LOGGER.warning(f"标记当前代理 {self.proxy_manager.current_proxy} 为失败状态")
+                self.proxy_manager.mark_proxy_failed(self.proxy_manager.current_proxy)
+            # 重新设置客户端
+            self._setup_client(force_new=True)
+            # 递归重试一次
+            return self._init_bot_impl(_mode)
 
     def _handle_api_error(self, err, retry_count=0):
         """处理API错误，必要时切换代理"""
@@ -399,16 +440,30 @@ class BotMjapi(Bot):
 
     def _process_reaction(self, reaction, recurse):
         if reaction:
+            # 检查是否是错误响应
+            if isinstance(reaction, dict) and 'error' in reaction:
+                LOGGER.error(f"Bot react error: {reaction}")
+                # 标记当前代理为失败状态
+                if self.proxy_manager.current_proxy != "direct":
+                    LOGGER.warning(f"标记当前代理 {self.proxy_manager.current_proxy} 为失败状态 (API错误)")
+                    self.proxy_manager.mark_proxy_failed(self.proxy_manager.current_proxy)
+                # 重新设置客户端（切换到新代理）
+                self._setup_client(force_new=True)
+                return None
             pass
         else:
             return None
 
         # 检查api是否正常，如果异常则重新登录
         if 'type' not in reaction:
-            LOGGER.error("Bot react error: %s", reaction)
-            # 重新设置客户端（可能会切换代理）
+            LOGGER.error(f"Bot react error: {reaction}")
+            # 标记当前代理为失败状态
+            if self.proxy_manager.current_proxy != "direct":
+                LOGGER.warning(f"标记当前代理 {self.proxy_manager.current_proxy} 为失败状态 (缺少type字段)")
+                self.proxy_manager.mark_proxy_failed(self.proxy_manager.current_proxy)
+            # 重新设置客户端（切换到新代理）
             self._setup_client(force_new=True)
-            pass
+            return None
 
         # process self reach
         if recurse and reaction['type'] == MjaiType.REACH and reaction['actor'] == self.seat:
