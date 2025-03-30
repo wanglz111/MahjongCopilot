@@ -12,6 +12,7 @@ class MjapiClient:
         self.timeout = timeout
         self.token:str = None
         self.headers = {}
+        self.session = requests.Session()
 
     def set_bearer_token(self, token):
         """Set the bearer token for authentication."""
@@ -22,7 +23,7 @@ class MjapiClient:
         """ send POST to API and process response"""
         try:
             full_url = f'{self.base_url}{path}'
-            res = requests.post(full_url, json=json, headers=self.headers, timeout=self.timeout)
+            res = self.session.post(full_url, json=json, headers=self.headers, timeout=self.timeout)
             return self._process_res(res, raise_error)
         except requests.RequestException as e:
             if raise_error:
@@ -34,7 +35,7 @@ class MjapiClient:
         """ send GET to API and process response"""
         try:
             full_url = f'{self.base_url}{path}'
-            res = requests.get(full_url, headers=self.headers, timeout=self.timeout)
+            res = self.session.get(full_url, headers=self.headers, timeout=self.timeout)
             return self._process_res(res, raise_error)
         except requests.RequestException as e:
             if raise_error:
@@ -137,7 +138,7 @@ class MjapiClient:
 
     def _post_act(self, path, _seq, actions):
         # post request to MJAPI and process response/errors
-        response = requests.post(self.base_url + path, json=actions, headers=self.headers, timeout=self.timeout)
+        response = self.session.post(self.base_url + path, json=actions, headers=self.headers, timeout=self.timeout)
         if response.content:
             response_json = response.json()
             if response.status_code == 200:

@@ -27,3 +27,7 @@ MahjongCopilot.spec
 libriichi3p/*.pyd
 libriichi3p/*.so
 chrome_ext/
+bot/mjapi/bot_mjapi.py
+.gitignore
+bot/mjapi/port.json
+proxy_tokens.json
