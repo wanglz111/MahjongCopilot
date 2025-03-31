@@ -292,6 +292,11 @@ class BotMjapi(Bot):
                     self.st.mjapi_usage = self.api_usage
                     self.last_usage_update = time.time()  # 记录更新时间
                     self.st.save_json()
+
+                    # 如果已经在牌桌上，确保初始化bot
+                    if self.initialized and self.seat >= 0:
+                        LOGGER.info(f"检测到已在牌桌上(座位:{self.seat})，重新初始化bot...")
+                        self._init_bot_impl()
                 except Exception as e:
                     # 获取模型或用量失败不影响主要功能，只记录警告
                     LOGGER.warning(f"获取模型或用量信息失败: {e}")
